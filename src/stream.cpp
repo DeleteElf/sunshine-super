@@ -49,6 +49,7 @@ extern "C" {
 #define IDX_SET_MOTION_EVENT 13
 #define IDX_SET_RGB_LED 14
 #define IDX_SET_ADAPTIVE_TRIGGERS 15
+#define IDX_MIC_OPUS_DATA 16
 
 static const short packetTypes[] = {
   0x0305,  // Start A
@@ -67,6 +68,7 @@ static const short packetTypes[] = {
   0x5501,  // Set motion event (Sunshine protocol extension)
   0x5502,  // Set RGB LED (Sunshine protocol extension)
   0x5503,  // Set Adaptive triggers (Sunshine protocol extension)
+  0x0061,  // Microphone Opus encoded data(moonlight audio rtp packet type only 1 byte,must 97，see RtpAudioQueue.c) (Sunshine protocol extension)
 };
 
 namespace asio = boost::asio;
@@ -338,6 +340,8 @@ namespace stream {
     udp::socket audio_sock {io_context};
 
     control_server_t control_server;
+
+    bool enable_mic=false;
   };
 
   struct session_t {
@@ -386,6 +390,8 @@ namespace stream {
 
       audio_fec_packet_t fec_packet;
       std::unique_ptr<platf::deinit_t> qos;
+
+      bool enable_mic;
     } audio;
 
     struct {
@@ -1167,6 +1173,29 @@ namespace stream {
     server->flush();
   }
 
+  void receiveMicrophoneData(std::array<char, 2048> buffer,int bytes) {
+    try {
+      if (bytes >= sizeof(RTP_PACKET)) {
+        auto *header = (RTP_PACKET *) buffer.data();
+        if (header->packetType == packetTypes[IDX_MIC_OPUS_DATA]) {
+          size_t header_size = sizeof(RTP_PACKET);
+          if (bytes > header_size) {
+            const auto *audio_data = reinterpret_cast<const uint8_t *>(buffer.data()) + header_size;
+            if (int result = audio::write_mic_data(audio_data,bytes-header_size); result < 0) {
+              BOOST_LOG(error) << "Failed to write microphone data to stream";
+            } else {
+              BOOST_LOG(debug) << "Successfully wrote " << result << " bytes to microphone stream";
+            }
+          }
+        } else {
+          BOOST_LOG(warning) << "Unknown microphone packet type: 0x" << std::hex << (int) header->packetType;
+        }
+      }
+    } catch (const std::exception &e) {
+      BOOST_LOG(error) << "Error processing mic packet: " << e.what();
+    }
+  }
+
   void recvThread(broadcast_ctx_t &ctx) {
     std::map<av_session_id_t, message_queue_t> peer_to_video_session;
     std::map<av_session_id_t, message_queue_t> peer_to_audio_session;
@@ -1236,7 +1265,8 @@ namespace stream {
             BOOST_LOG(debug) << "RAISE: "sv << peer.address().to_string() << ':' << peer.port() << " :: " << type_str;
             it->second->raise(peer, std::string {buf[buf_elem].data(), bytes});
           }
-        } else if (bytes >= sizeof(SS_PING)) {
+        } else if (bytes == 20) { //观察到长度是20
+//        } else if (bytes >= sizeof(SS_PING)) {
           auto ping = (PSS_PING) buf[buf_elem].data();
 
           // For new PING packets that include a client identifier, search by payload.
@@ -1244,6 +1274,11 @@ namespace stream {
           if (it != std::end(peer_to_session)) {
             BOOST_LOG(debug) << "RAISE: "sv << peer.address().to_string() << ':' << peer.port() << " :: " << type_str;
             it->second->raise(peer, std::string {buf[buf_elem].data(), bytes});
+          }
+        } else {  // todo:我们在这边直接增加接收远程麦克风逻辑
+          // BOOST_LOG(debug) << "收到客户端的麦克风数据，数据长度：" <<bytes;
+          if(ctx.enable_mic){
+            receiveMicrophoneData(buf[1],bytes);
           }
         }
       };
@@ -1255,9 +1290,11 @@ namespace stream {
     video_sock.async_receive_from(asio::buffer(buf[0]), peer, 0, recv_func[0]);
     audio_sock.async_receive_from(asio::buffer(buf[1]), peer, 0, recv_func[1]);
 
+    audio::init_mic_redirect_device();
     while (!broadcast_shutdown_event->peek()) {
       io.run();
     }
+    audio::release_mic_redirect_device();
   }
 
   void videoBroadcastThread(udp::socket &sock) {
@@ -1950,6 +1987,7 @@ namespace stream {
         return -1;
       }
 
+      session.broadcast_ref->enable_mic=session.audio.enable_mic; //传入是否允许麦克风到广播上下文
       session.control.expected_peer_address = addr_string;
       BOOST_LOG(debug) << "Expecting incoming session connections from "sv << addr_string;
 
@@ -2047,6 +2085,8 @@ namespace stream {
       session->audio.avRiKeyId = util::endian::big(*(std::uint32_t *) launch_session.iv.data());
       session->audio.sequenceNumber = 0;
       session->audio.timestamp = 0;
+
+      session->audio.enable_mic = launch_session.enable_mic;
 
       session->control.peer = nullptr;
       session->state.store(state_e::STOPPED, std::memory_order_relaxed);

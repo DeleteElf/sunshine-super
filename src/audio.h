@@ -100,4 +100,23 @@ namespace audio {
    * @examples_end
    */
   bool is_audio_ctx_sink_available(const audio_ctx_t &ctx);
+
+  /**
+   * @brief Start the microphone redirect device.
+   * @returns 0 on success, -1 on error.
+   */
+  int  init_mic_redirect_device();
+
+  /**
+   * @brief Release the microphone redirect device.
+   */
+  void  release_mic_redirect_device();
+
+  /**
+   * @brief Write microphone data to the virtual audio device.
+   * @param data Pointer to the audio data.
+   * @param size Size of the audio data in bytes.
+   * @returns Number of bytes written, or -1 on error.
+   */
+  int  write_mic_data(const std::uint8_t *data, size_t size);
 }  // namespace audio

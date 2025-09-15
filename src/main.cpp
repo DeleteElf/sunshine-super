@@ -137,7 +137,12 @@ int main(int argc, char *argv[]) {
   // by placing a user-writable directory in the system-wide PATH variable.
   SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_APPLICATION_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32);
 
-  setlocale(LC_ALL, "C");
+ char* loc= setlocale(LC_ALL, "");// C   zh_CN.UTF8  chs en_US.UTF8
+ if(loc!=nullptr){
+   BOOST_LOG(info) << "LC_ALL: " << loc;
+ }else{
+   BOOST_LOG(error) << "set locale fail!!!"sv;
+ }
 #endif
 
 #pragma GCC diagnostic push
