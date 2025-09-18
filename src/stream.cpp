@@ -15,6 +15,7 @@
 extern "C" {
   // clang-format off
 #include <moonlight-common-c/src/Limelight-internal.h>
+#include <moonlight-common-c/src/Platform.h>
 #include "rswrapper.h"
   // clang-format on
 }
@@ -1275,8 +1276,7 @@ namespace stream {
             BOOST_LOG(debug) << "RAISE: "sv << peer.address().to_string() << ':' << peer.port() << " :: " << type_str;
             it->second->raise(peer, std::string {buf[buf_elem].data(), bytes});
           }
-        } else {  // todo:我们在这边直接增加接收远程麦克风逻辑
-          // BOOST_LOG(debug) << "收到客户端的麦克风数据，数据长度：" <<bytes;
+        } else {
           if(ctx.enable_mic){
             receiveMicrophoneData(buf[1],bytes);
           }
@@ -1289,12 +1289,13 @@ namespace stream {
 
     video_sock.async_receive_from(asio::buffer(buf[0]), peer, 0, recv_func[0]);
     audio_sock.async_receive_from(asio::buffer(buf[1]), peer, 0, recv_func[1]);
-
-    audio::init_mic_redirect_device();
+    if(ctx.enable_mic)
+      audio::init_mic_redirect_device();
     while (!broadcast_shutdown_event->peek()) {
       io.run();
     }
-    audio::release_mic_redirect_device();
+    if(ctx.enable_mic)
+      audio::release_mic_redirect_device();
   }
 
   void videoBroadcastThread(udp::socket &sock) {
@@ -1517,7 +1518,9 @@ namespace stream {
 
             inspect->rtp.header = 0x80 | FLAG_EXTENSION;
             inspect->rtp.sequenceNumber = util::endian::big<uint16_t>(lowseq + x);
-            inspect->rtp.timestamp = util::endian::big<uint32_t>(timestamp);
+            inspect->rtp.timestamp = util::endian::big<uint32_t>(timestamp); //BE32 can also be used here
+            inspect->rtp.ssrc=BE32(packet->displayIndex); //same as util::endian::big<uint32_t>
+
 
             inspect->packet.multiFecBlocks = (blockIndex << 4) | ((fec_blocks_needed - 1) << 6);
             inspect->packet.frameIndex = packet->frame_index();
@@ -1890,7 +1893,7 @@ namespace stream {
     session->video.qos = platf::enable_socket_qos(ref->video_sock.native_handle(), address, session->video.peer.port(), platf::qos_data_type_e::video, session->config.videoQosType != 0);
 
     BOOST_LOG(debug) << "Start capturing Video"sv;
-    video::capture(session->mail, session->config.monitor, session);
+    video::capture(session->mail, session->config.monitors, session);
   }
 
   void audioThread(session_t *session) {

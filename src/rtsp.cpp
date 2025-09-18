@@ -978,17 +978,23 @@ namespace rtsp_stream {
         config.encryptionFlagsEnabled |= SS_ENC_AUDIO;
       }
 
-      config.monitor.height = util::from_view(args.at("x-nv-video[0].clientViewportHt"sv));
-      config.monitor.width = util::from_view(args.at("x-nv-video[0].clientViewportWd"sv));
-      config.monitor.framerate = util::from_view(args.at("x-nv-video[0].maxFPS"sv));
-      config.monitor.bitrate = util::from_view(args.at("x-nv-vqos[0].bw.maximumBitrateKbps"sv));
-      config.monitor.slicesPerFrame = util::from_view(args.at("x-nv-video[0].videoEncoderSlicesPerFrame"sv));
-      config.monitor.numRefFrames = util::from_view(args.at("x-nv-video[0].maxNumReferenceFrames"sv));
-      config.monitor.encoderCscMode = util::from_view(args.at("x-nv-video[0].encoderCscMode"sv));
-      config.monitor.videoFormat = util::from_view(args.at("x-nv-vqos[0].bitStreamFormat"sv));
-      config.monitor.dynamicRange = util::from_view(args.at("x-nv-video[0].dynamicRangeMode"sv));
-      config.monitor.chromaSamplingType = util::from_view(args.at("x-ss-video[0].chromaSamplingType"sv));
-      config.monitor.enableIntraRefresh = util::from_view(args.at("x-ss-video[0].intraRefresh"sv));
+      for(int i=0;i<session.display_count;i++){
+        std::shared_ptr<video::config_t> monitor=std::make_shared<video::config_t>();
+        monitor->displayIndex=i;//set display index
+        config.monitors.push_back(monitor);
+
+        monitor->height = util::from_view(args.at("x-nv-video[0].clientViewportHt"sv));
+        monitor->width = util::from_view(args.at("x-nv-video[0].clientViewportWd"sv));
+        monitor->framerate = util::from_view(args.at("x-nv-video[0].maxFPS"sv));
+        monitor->bitrate = util::from_view(args.at("x-nv-vqos[0].bw.maximumBitrateKbps"sv));
+        monitor->slicesPerFrame = util::from_view(args.at("x-nv-video[0].videoEncoderSlicesPerFrame"sv));
+        monitor->numRefFrames = util::from_view(args.at("x-nv-video[0].maxNumReferenceFrames"sv));
+        monitor->encoderCscMode = util::from_view(args.at("x-nv-video[0].encoderCscMode"sv));
+        monitor->videoFormat = util::from_view(args.at("x-nv-vqos[0].bitStreamFormat"sv));
+        monitor->dynamicRange = util::from_view(args.at("x-nv-video[0].dynamicRangeMode"sv));
+        monitor->chromaSamplingType = util::from_view(args.at("x-ss-video[0].chromaSamplingType"sv));
+        monitor->enableIntraRefresh = util::from_view(args.at("x-ss-video[0].intraRefresh"sv));
+      }
 
       configuredBitrateKbps = util::from_view(args.at("x-ml-video.configuredBitrateKbps"sv));
     } catch (std::out_of_range &) {
@@ -1054,23 +1060,25 @@ namespace rtsp_stream {
       configuredBitrateKbps -= std::min((std::int64_t) 500, configuredBitrateKbps / 10);
 
       BOOST_LOG(debug) << "Final adjusted video encoding bitrate is "sv << configuredBitrateKbps << " Kbps"sv;
-      config.monitor.bitrate = configuredBitrateKbps;
+//      config.monitor.bitrate = configuredBitrateKbps;
+      for(int i=0;i<config.monitors.size();i++)
+        config.monitors[i]->bitrate = configuredBitrateKbps;
     }
+    for(int i=0;i<config.monitors.size();i++) {
+      if (config.monitor.videoFormat == 1 && video::active_hevc_mode == 1) {
+        BOOST_LOG(warning) << "HEVC is disabled, yet the client requested HEVC"sv;
 
-    if (config.monitor.videoFormat == 1 && video::active_hevc_mode == 1) {
-      BOOST_LOG(warning) << "HEVC is disabled, yet the client requested HEVC"sv;
+        respond(sock, session, &option, 400, "BAD REQUEST", req->sequenceNumber, {});
+        return;
+      }
 
-      respond(sock, session, &option, 400, "BAD REQUEST", req->sequenceNumber, {});
-      return;
+      if (config.monitor.videoFormat == 2 && video::active_av1_mode == 1) {
+        BOOST_LOG(warning) << "AV1 is disabled, yet the client requested AV1"sv;
+
+        respond(sock, session, &option, 400, "BAD REQUEST", req->sequenceNumber, {});
+        return;
+      }
     }
-
-    if (config.monitor.videoFormat == 2 && video::active_av1_mode == 1) {
-      BOOST_LOG(warning) << "AV1 is disabled, yet the client requested AV1"sv;
-
-      respond(sock, session, &option, 400, "BAD REQUEST", req->sequenceNumber, {});
-      return;
-    }
-
     // Check that any required encryption is enabled
     auto encryption_mode = net::encryption_mode_for_address(sock.remote_endpoint().address());
     if (encryption_mode == config::ENCRYPTION_MODE_MANDATORY &&

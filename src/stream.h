@@ -24,7 +24,8 @@ namespace stream {
 
   struct config_t {
     audio::config_t audio;
-    video::config_t monitor;
+//    video::config_t monitor;
+    std::vector<std::shared_ptr<video::config_t>> monitors;
 
     int packetsize;
     int minRequiredFecPackets;

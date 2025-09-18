@@ -1073,6 +1073,10 @@ namespace video {
     const auto output_name {display_device::map_output_name(config::video.output_name)};
     std::string current_display_name;
 
+    if(current_display_index >= display_names.size()){
+      //todo: add vdd
+    }
+
     // If we have a current display index, let's start with that
     if (current_display_index >= 0 && current_display_index < display_names.size()) {
       current_display_name = display_names.at(current_display_index);
@@ -1147,7 +1151,9 @@ namespace video {
     // Get all the monitor names now, rather than at boot, to
     // get the most up-to-date list available monitors
     std::vector<std::string> display_names;
-    int display_p = -1;
+    display_names = platf::display_names(encoder.platform_formats->dev_type);
+    int display_p = capture_ctxs.front().config.displayIndex;
+
     refresh_displays(encoder.platform_formats->dev_type, display_names, display_p);
     auto disp = platf::display(encoder.platform_formats->dev_type, display_names[display_p], capture_ctxs.front().config);
     if (!disp) {
@@ -1439,6 +1445,7 @@ namespace video {
 
       packet->replacements = &session.replacements;
       packet->channel_data = channel_data;
+      packet->displayIndex=session.displayIndex;
       packets->raise(std::move(packet));
     }
 
@@ -1460,6 +1467,7 @@ namespace video {
     packet->channel_data = channel_data;
     packet->after_ref_frame_invalidation = encoded_frame.after_ref_frame_invalidation;
     packet->frame_timestamp = frame_timestamp;
+    packet->displayIndex=session.displayIndex;
     packets->raise(std::move(packet));
 
     return 0;
@@ -1844,7 +1852,7 @@ namespace video {
       // 0 ==> don't inject, 1 ==> inject for h264, 2 ==> inject for hevc
       config.videoFormat <= 1 ? (1 - (int) video_format[encoder_t::VUI_PARAMETERS]) * (1 + config.videoFormat) : 0
     );
-
+    session->displayIndex=config.displayIndex;
     return session;
   }
 
@@ -2118,6 +2126,8 @@ namespace video {
     }
 
     while (encode_session_ctx_queue.running()) {
+      if(synced_session_ctxs.front()->config.displayIndex>=0)
+        display_p = synced_session_ctxs.front()->config.displayIndex;
       // Refresh display names since a display removal might have caused the reinitialization
       refresh_displays(encoder.platform_formats->dev_type, display_names, display_p);
 
@@ -2361,17 +2371,22 @@ namespace video {
 
   void capture(
     safe::mail_t mail,
-    config_t config,
+    //config_t config,
+    std::vector<std::shared_ptr<config_t>> configs,
     void *channel_data
   ) {
     auto idr_events = mail->event<bool>(mail::idr);
 
     idr_events->raise(true);
     if (chosen_encoder->flags & PARALLEL_ENCODING) {
-      capture_async(std::move(mail), config, channel_data);
+//      capture_async(std::move(mail), config, channel_data);
+      for(int i=0;i<configs.size();i++) {
+        capture_async(std::move(mail), *configs[i].get(), channel_data);
+      }
     } else {
       safe::signal_t join_event;
       auto ref = capture_thread_sync.ref();
+      auto config=*configs[0].get();
       ref->encode_session_ctx_queue.raise(sync_session_ctx_t {
         &join_event,
         mail->event<bool>(mail::shutdown),

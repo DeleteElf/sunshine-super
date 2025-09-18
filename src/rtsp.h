@@ -28,13 +28,17 @@ namespace rtsp_stream {
     int width;
     int height;
     int fps;
+    int display_count;
+    bool use_vdd;
+
+    bool enable_mic;
+
     int gcmap;
     int appid;
     int surround_info;
     std::string surround_params;
     bool enable_hdr;
     bool enable_sops;
-    bool enable_mic;
 
     std::optional<crypto::cipher::gcm_t> rtsp_cipher;
     std::string rtsp_url_scheme;

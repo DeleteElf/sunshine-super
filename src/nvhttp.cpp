@@ -286,8 +286,18 @@ namespace nvhttp {
     std::copy(rikey.cbegin(), rikey.cend(), std::back_inserter(launch_session->gcm_key));
 
     launch_session->host_audio = host_audio;
-    std::stringstream mode = std::stringstream(get_arg(args, "mode", "0x0x0"));
+
+    // Split mode by the char "x", to populate width/height/fps/displayIndex;width/height/fps/displayIndex
+    // eg. 1  width/height/fps
+    // eg. 2  width/height/fps/displayCount
+    // eg. 3  width/height/fps/displayCount/displayIndex
+    // eg. 4  width/height/fps/displayCount/displayIndex;width/height/fps/displayCount/displayIndex
+    // displayIndex for next version
+    // launch_session-> mode = std::stringstream(get_arg(args, "mode", "0x0x0x0"));
+    std::stringstream mode = std::stringstream(get_arg(args, "mode", "0x0x0x0x0")); //width/height/fps/displayCount/displayIndex
+    //std::stringstream mode = std::stringstream(get_arg(args, "mode", "0x0x0"));
     // Split mode by the char "x", to populate width/height/fps
+    launch_session->display_count=1;
     int x = 0;
     std::string segment;
     while (std::getline(mode, segment, 'x')) {
@@ -300,8 +310,14 @@ namespace nvhttp {
       if (x == 2) {
         launch_session->fps = atoi(segment.c_str());
       }
+      if (x == 3) {
+        launch_session->display_count = atoi(segment.c_str());
+      }
       x++;
     }
+    launch_session->enable_mic = util::from_view(get_arg(args, "mic", "0"));
+    launch_session->use_vdd = util::from_view(get_arg(args, "vdd", "1"));
+
     launch_session->unique_id = (get_arg(args, "uniqueid", "unknown"));
     launch_session->appid = util::from_view(get_arg(args, "appid", "unknown"));
     launch_session->enable_sops = util::from_view(get_arg(args, "sops", "0"));

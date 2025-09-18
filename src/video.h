@@ -27,7 +27,7 @@ namespace video {
     int bitrate;  // Video bitrate in kilobits (1000 bits) for requested framerate
     int slicesPerFrame;  // Number of slices per frame
     int numRefFrames;  // Max number of reference frames
-
+    int displayIndex; //index of display
     /* Requested color range and SDR encoding colorspace, HDR encoding colorspace is always BT.2020+ST2084
        Color range (encoderCscMode & 0x1) : 0 - limited, 1 - full
        SDR encoding colorspace (encoderCscMode >> 1) : 0 - BT.601, 1 - BT.709, 2 - BT.2020 */
@@ -198,6 +198,8 @@ namespace video {
   };
 
   struct encode_session_t {
+    int displayIndex=-1; //encode session for display
+
     virtual ~encode_session_t() = default;
 
     virtual int convert(platf::img_t &img) = 0;
@@ -337,7 +339,8 @@ namespace video {
 
   void capture(
     safe::mail_t mail,
-    config_t config,
+    //config_t config,
+    std::vector<std::shared_ptr<config_t>> configs, //multi display configs
     void *channel_data
   );
 
