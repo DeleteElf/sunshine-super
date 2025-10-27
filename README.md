@@ -1,7 +1,6 @@
 ### Sunshine-Super 项目
 本项目是基于sunshine项目进行优化改造
 
-
 ### 版本变更日志
 #### 1.0.25.091801 edit by 陈浩
 1. 多个显示器时，rtp包写入不同的ssrc。
