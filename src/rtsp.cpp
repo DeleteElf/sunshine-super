@@ -952,6 +952,7 @@ namespace rtsp_stream {
     args.try_emplace("x-ss-general.encryptionEnabled"sv, "0"sv);
     args.try_emplace("x-ss-video[0].chromaSamplingType"sv, "0"sv);
     args.try_emplace("x-ss-video[0].intraRefresh"sv, "0"sv);
+    args.try_emplace("x-nv-video[0].clientRefreshRateX100"sv, "0"sv);
 
     stream::config_t config;
 
@@ -986,6 +987,7 @@ namespace rtsp_stream {
         monitor->height = util::from_view(args.at("x-nv-video[0].clientViewportHt"sv));
         monitor->width = util::from_view(args.at("x-nv-video[0].clientViewportWd"sv));
         monitor->framerate = util::from_view(args.at("x-nv-video[0].maxFPS"sv));
+        monitor->framerateX100 = util::from_view(args.at("x-nv-video[0].clientRefreshRateX100"sv));
         monitor->bitrate = util::from_view(args.at("x-nv-vqos[0].bw.maximumBitrateKbps"sv));
         monitor->slicesPerFrame = util::from_view(args.at("x-nv-video[0].videoEncoderSlicesPerFrame"sv));
         monitor->numRefFrames = util::from_view(args.at("x-nv-video[0].maxNumReferenceFrames"sv));
@@ -1035,6 +1037,10 @@ namespace rtsp_stream {
         }
       }
       config.audio.flags[audio::config_t::CUSTOM_SURROUND_PARAMS] = valid;
+    }
+    if (session.continuous_audio) {
+      BOOST_LOG(info) << "Client requested continuous audio"sv;
+      config.audio.flags[audio::config_t::CONTINUOUS_AUDIO] = true;
     }
 
     // If the client sent a configured bitrate, we will choose the actual bitrate ourselves

@@ -24,7 +24,7 @@ cd..
 cd build-deps
 git checkout dist
 git pull
-git checkout 2450694
+git checkout 6c9ec34
 
 cd..
 cd googletest
@@ -91,7 +91,7 @@ cd..
 cd doxyconfig
 git checkout master
 git pull
-git checkout a73f908
+git checkout 1188ef2
 
 cd doxygen-awesome-css
 git checkout master

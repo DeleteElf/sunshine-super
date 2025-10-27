@@ -174,21 +174,21 @@ namespace platf::publish {
     mdns_registration_t():
         existing_instance(nullptr) {
       if (service(true, existing_instance)) {
-        BOOST_LOG(error) << "Unable to register CGTeamworkRH mDNS service"sv;
+        BOOST_LOG(error) << "Unable to register Sunshine mDNS service"sv;
         return;
       }
 
-      BOOST_LOG(info) << "Registered CGTeamworkRH mDNS service"sv;
+      BOOST_LOG(info) << "Registered Sunshine mDNS service"sv;
     }
 
     ~mdns_registration_t() override {
       if (existing_instance) {
         if (service(false, existing_instance)) {
-          BOOST_LOG(error) << "Unable to unregister CGTeamworkRH mDNS service"sv;
+          BOOST_LOG(error) << "Unable to unregister Sunshine mDNS service"sv;
           return;
         }
 
-        BOOST_LOG(info) << "Unregistered CGTeamworkRH mDNS service"sv;
+        BOOST_LOG(info) << "Unregistered Sunshine mDNS service"sv;
       }
     }
 
