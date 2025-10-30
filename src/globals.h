@@ -26,6 +26,8 @@ extern bool display_cursor;
  * @brief A global singleton used for NVIDIA control panel modifications.
  */
 extern nvprefs::nvprefs_interface nvprefs_instance;
+
+extern std::string virtual_name; //虚拟驱动名称
 #endif
 
 /**
@@ -44,6 +46,7 @@ namespace mail {
 
   // Global mail
   MAIL(shutdown);
+  MAIL(close_window);//提供窗口关闭的事件支持
   MAIL(broadcast_shutdown);
   MAIL(video_packets);
   MAIL(audio_packets);

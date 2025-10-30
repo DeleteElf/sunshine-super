@@ -300,6 +300,7 @@ namespace nvhttp {
     launch_session->display_count=1;
     int x = 0;
     std::string segment;
+    launch_session->display_count=1;
     while (std::getline(mode, segment, 'x')) {
       if (x == 0) {
         launch_session->width = atoi(segment.c_str());
@@ -311,12 +312,12 @@ namespace nvhttp {
         launch_session->fps = atoi(segment.c_str());
       }
       if (x == 3) {
-        launch_session->display_count = atoi(segment.c_str());
+        launch_session->display_count = atoi(segment.c_str()); //显示器数量
       }
       x++;
     }
-    launch_session->enable_mic = util::from_view(get_arg(args, "mic", "0"));
-    launch_session->use_vdd = util::from_view(get_arg(args, "vdd", "1"));
+    launch_session->enable_mic = util::from_view(get_arg(args, "mic", "0")); //是否传输麦克风数据
+    launch_session->use_vdd = util::from_view(get_arg(args, "vdd", "1")); //是否使用虚拟显示器
 
     launch_session->unique_id = (get_arg(args, "uniqueid", "unknown"));
     launch_session->appid = util::from_view(get_arg(args, "appid", "unknown"));
@@ -324,7 +325,6 @@ namespace nvhttp {
     launch_session->surround_info = util::from_view(get_arg(args, "surroundAudioInfo", "196610"));
     launch_session->surround_params = (get_arg(args, "surroundParams", ""));
     launch_session->continuous_audio = util::from_view(get_arg(args, "continuousAudio", "0"));
-    launch_session->enable_mic = true;
     launch_session->gcmap = util::from_view(get_arg(args, "gcmap", "0"));
     launch_session->enable_hdr = util::from_view(get_arg(args, "hdrMode", "0"));
 
@@ -873,7 +873,8 @@ namespace nvhttp {
     if (rtsp_stream::session_count() == 0) {
       // The display should be restored in case something fails as there are no other sessions.
       revert_display_configuration = true;
-
+      //configure vdd
+      display_device::configure_vdd(config::video, *launch_session);
       // We want to prepare display only if there are no active sessions at
       // the moment. This should be done before probing encoders as it could
       // change the active displays.
@@ -1034,14 +1035,20 @@ namespace nvhttp {
     tree.put("root.cancel", 1);
     tree.put("root.<xmlattr>.status_code", 200);
 
-    rtsp_stream::terminate_sessions();
+    auto args=request->parse_query_string();
+    auto display= get_arg(args, "display","");
+    if(display.empty()) {
+      rtsp_stream::terminate_sessions();
 
-    if (proc::proc.running() > 0) {
-      proc::proc.terminate();
+      if (proc::proc.running() > 0) {
+        proc::proc.terminate();
+      }
+      // The config needs to be reverted regardless of whether "proc::proc.terminate()" was called or not.
+      display_device::revert_configuration();
+    }else{
+      BOOST_LOG(info) << "客户端关闭了窗口====>"sv << display;
+      mail::man->event<short>(mail::close_window)->raise(std::stoi(display));//触发窗口关闭事件
     }
-
-    // The config needs to be reverted regardless of whether "proc::proc.terminate()" was called or not.
-    display_device::revert_configuration();
   }
 
   void appasset(resp_https_t response, req_https_t request) {

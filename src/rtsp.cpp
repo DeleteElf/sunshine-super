@@ -1066,19 +1066,18 @@ namespace rtsp_stream {
       configuredBitrateKbps -= std::min((std::int64_t) 500, configuredBitrateKbps / 10);
 
       BOOST_LOG(debug) << "Final adjusted video encoding bitrate is "sv << configuredBitrateKbps << " Kbps"sv;
-//      config.monitor.bitrate = configuredBitrateKbps;
-      for(int i=0;i<config.monitors.size();i++)
+      for(int i=0;i<config.monitors.size();i++)      
         config.monitors[i]->bitrate = configuredBitrateKbps;
     }
     for(int i=0;i<config.monitors.size();i++) {
-      if (config.monitor.videoFormat == 1 && video::active_hevc_mode == 1) {
+      if (config.monitors[i]->videoFormat == 1 && video::active_hevc_mode == 1) {
         BOOST_LOG(warning) << "HEVC is disabled, yet the client requested HEVC"sv;
 
         respond(sock, session, &option, 400, "BAD REQUEST", req->sequenceNumber, {});
         return;
       }
 
-      if (config.monitor.videoFormat == 2 && video::active_av1_mode == 1) {
+      if (config.monitors[i]->videoFormat == 2 && video::active_av1_mode == 1) {
         BOOST_LOG(warning) << "AV1 is disabled, yet the client requested AV1"sv;
 
         respond(sock, session, &option, 400, "BAD REQUEST", req->sequenceNumber, {});

@@ -41,11 +41,12 @@
 build/
 cmake-*/
 docs/doxyconfig*
-
+out/
+setup/
 # npm
 node_modules/
 package-lock.json
-
+out/
 # Translations
 *.mo
 *.pot

@@ -21,10 +21,13 @@ target_link_libraries(audio-info
         ${PLATFORM_LIBRARIES})
 target_compile_options(audio-info PRIVATE ${SUNSHINE_COMPILE_OPTIONS})
 
-add_executable(sunshinesvc sunshinesvc.cpp)
-set_target_properties(sunshinesvc PROPERTIES CXX_STANDARD 23)
-target_link_libraries(sunshinesvc
+set(PROJECT_SVC_NAME "sunshinesvc")
+message("add ${PROJECT_SVC_NAME}==============>")
+
+add_executable(${PROJECT_SVC_NAME} sunshinesvc.cpp)
+set_target_properties(${PROJECT_SVC_NAME} PROPERTIES CXX_STANDARD 23)
+target_link_libraries(${PROJECT_SVC_NAME}
         ${CMAKE_THREAD_LIBS_INIT}
         wtsapi32
         ${PLATFORM_LIBRARIES})
-target_compile_options(sunshinesvc PRIVATE ${SUNSHINE_COMPILE_OPTIONS})
+target_compile_options(${PROJECT_SVC_NAME} PRIVATE ${SUNSHINE_COMPILE_OPTIONS})

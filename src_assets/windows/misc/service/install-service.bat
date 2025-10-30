@@ -65,3 +65,8 @@ sc description %SERVICE_NAME% "Sunshine is a self-hosted game stream host for Mo
 
 rem Start the new service
 net start %SERVICE_NAME%
+
+rem set the service auto start
+sc config %SERVICE_NAME% start= auto
+
+pause

@@ -17,6 +17,10 @@ extern "C" {
 
 struct AVPacket;
 
+namespace stream{
+  struct session_t;
+}
+
 namespace video {
 
   /* Encoding configuration requested by remote client */
@@ -199,8 +203,7 @@ namespace video {
   };
 
   struct encode_session_t {
-    int displayIndex=-1; //encode session for display
-
+    int displayIndex=-1;
     virtual ~encode_session_t() = default;
 
     virtual int convert(platf::img_t &img) = 0;
@@ -258,6 +261,7 @@ namespace video {
     std::vector<replace_t> *replacements = nullptr;
     void *channel_data = nullptr;
     bool after_ref_frame_invalidation = false;
+    int displayIndex=-1;
     std::optional<std::chrono::steady_clock::time_point> frame_timestamp;
   };
 
@@ -338,12 +342,7 @@ namespace video {
   extern bool last_encoder_probe_supported_ref_frames_invalidation;
   extern std::array<bool, 3> last_encoder_probe_supported_yuv444_for_codec;  // 0 - H.264, 1 - HEVC, 2 - AV1
 
-  void capture(
-    safe::mail_t mail,
-    //config_t config,
-    std::vector<std::shared_ptr<config_t>> configs, //multi display configs
-    void *channel_data
-  );
+  void startCapture(safe::mail_t mail,std::vector<std::shared_ptr<config_t>>& configs, void *channel_data);
 
   bool validate_encoder(encoder_t &encoder, bool expect_failure);
 

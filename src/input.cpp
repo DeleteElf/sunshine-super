@@ -160,28 +160,26 @@ namespace input {
       SHORTCUT = CTRL | ALT | SHIFT  ///< Shortcut combination
     };
 
-    input_t(
-      safe::mail_raw_t::event_t<input::touch_port_t> touch_port_event,
-      platf::feedback_queue_t feedback_queue
-    ):
+    input_t(safe::mail_raw_t::event_t<input::touch_ports> touch_ports_event,
+      platf::feedback_queue_t feedback_queue):
         shortcutFlags {},
         gamepads(MAX_GAMEPADS),
         client_context {platf::allocate_client_input_context(platf_input)},
-        touch_port_event {std::move(touch_port_event)},
+        touch_ports_event {std::move(touch_ports_event)},
         feedback_queue {std::move(feedback_queue)},
         mouse_left_button_timeout {},
-        touch_port {{0, 0, 0, 0}, 0, 0, 1.0f},
+//        touch_port {{0, 0, 0, 0}, 0, 0, 1.0f},
         accumulated_vscroll_delta {},
         accumulated_hscroll_delta {} {
     }
-
+    std::vector<safe::mail_t> session_mails;
     // Keep track of alt+ctrl+shift key combo
     int shortcutFlags;
 
     std::vector<gamepad_t> gamepads;
     std::unique_ptr<platf::client_input_t> client_context;
 
-    safe::mail_raw_t::event_t<input::touch_port_t> touch_port_event;
+    safe::mail_raw_t::event_t<input::touch_ports> touch_ports_event;
     platf::feedback_queue_t feedback_queue;
 
     std::list<std::vector<uint8_t>> input_queue;
@@ -189,7 +187,7 @@ namespace input {
 
     thread_pool_util::ThreadPool::task_id_t mouse_left_button_timeout;
 
-    input::touch_port_t touch_port;
+    input::touch_ports touch_ports;
 
     int32_t accumulated_vscroll_delta;
     int32_t accumulated_hscroll_delta;
@@ -200,14 +198,14 @@ namespace input {
    * @param keyCode The VKEY code
    * @return 0 if no shortcut applied, > 0 if shortcut applied.
    */
-  inline int apply_shortcut(short keyCode) {
+  inline int apply_shortcut(short keyCode,safe::mail_t& session_mail) {
     constexpr auto VK_F1 = 0x70;
     constexpr auto VK_F13 = 0x7C;
 
     BOOST_LOG(debug) << "Apply Shortcut: 0x"sv << util::hex((std::uint8_t) keyCode).to_string_view();
 
     if (keyCode >= VK_F1 && keyCode <= VK_F13) {
-      mail::man->event<int>(mail::switch_display)->raise(keyCode - VK_F1);
+      session_mail->event<int>(mail::switch_display)->raise(keyCode - VK_F1);
       return 1;
     }
 
@@ -235,6 +233,7 @@ namespace input {
       << "y      ["sv << util::endian::big(packet->y) << ']' << std::endl
       << "width  ["sv << util::endian::big(packet->width) << ']' << std::endl
       << "height ["sv << util::endian::big(packet->height) << ']' << std::endl
+      << "displayIndex ["sv << util::endian::big(packet->displayIndex) << ']' << std::endl
       << "--end absolute mouse move packet--"sv;
   }
 
@@ -453,20 +452,25 @@ namespace input {
   /**
    * @brief Converts client coordinates on the specified surface into screen coordinates.
    * @param input The input context.
+   * @param displayIndex The display index,all screen rectangle use -1.
    * @param val The cartesian coordinate pair to convert.
    * @param size The size of the client's surface containing the value.
    * @return The host-relative coordinate pair if a touchport is available.
    */
-  std::optional<std::pair<float, float>> client_to_touchport(std::shared_ptr<input_t> &input, const std::pair<float, float> &val, const std::pair<float, float> &size) {
-    auto &touch_port_event = input->touch_port_event;
-    auto &touch_port = input->touch_port;
+  std::optional<std::pair<float, float>> client_to_touchport(std::shared_ptr<input_t> &input,short displayIndex,
+                                                             const std::pair<float, float> &val, const std::pair<float, float> &size) {
+    auto &touch_port_event = input->touch_ports_event;
+    auto &touch_ports = input->touch_ports;
     if (touch_port_event->peek()) {
-      touch_port = *touch_port_event->pop();
+      touch_ports = *touch_port_event->pop();
     }
-    if (!touch_port) {
+    if (touch_ports.ports.find(displayIndex)==touch_ports.ports.end()) {
       BOOST_LOG(verbose) << "Ignoring early absolute input without a touch port"sv;
       return std::nullopt;
     }
+    input::touch_port_t touch_port=touch_ports.full_touch_port;
+    if(displayIndex>=0)
+      touch_port=touch_ports.ports[displayIndex];
 
     auto scalarX = touch_port.width / size.first;
     auto scalarY = touch_port.height / size.second;
@@ -539,12 +543,12 @@ namespace input {
     auto width = (float) util::endian::big(packet->width);
     auto height = (float) util::endian::big(packet->height);
 
-    auto tpcoords = client_to_touchport(input, {x, y}, {width, height});
+    auto displayIndex =(short) util::endian::big(packet->displayIndex);
+    auto tpcoords = client_to_touchport(input,displayIndex, {x, y}, {width, height});
     if (!tpcoords) {
       return;
     }
-
-    auto &touch_port = input->touch_port;
+    auto &touch_port = input->touch_ports.ports[displayIndex];
     platf::touch_port_t abs_port {
       touch_port.offset_x,
       touch_port.offset_y,
@@ -747,7 +751,8 @@ namespace input {
       if (!release) {
         // A new key has been pressed down, we need to check for key combo's
         // If a key-combo has been pressed down, don't pass it through
-        if (input->shortcutFlags == input_t::SHORTCUT && apply_shortcut(keyCode) > 0) {
+        auto & session=input->session_mails[packet->zero2];
+        if (input->shortcutFlags == input_t::SHORTCUT && apply_shortcut(keyCode,session) > 0) {
           return;
         }
 
@@ -880,12 +885,12 @@ namespace input {
     }
 
     // Convert the client normalized coordinates to touchport coordinates
-    auto coords = client_to_touchport(input, {from_clamped_netfloat(packet->x, 0.0f, 1.0f) * 65535.f, from_clamped_netfloat(packet->y, 0.0f, 1.0f) * 65535.f}, {65535.f, 65535.f});
+    auto coords = client_to_touchport(input, -1, {from_clamped_netfloat(packet->x, 0.0f, 1.0f) * 65535.f, from_clamped_netfloat(packet->y, 0.0f, 1.0f) * 65535.f}, {65535.f, 65535.f});
     if (!coords) {
       return;
     }
 
-    auto &touch_port = input->touch_port;
+    auto &touch_port = input->touch_ports.full_touch_port;
     platf::touch_port_t abs_port {
       touch_port.offset_x,
       touch_port.offset_y,
@@ -936,12 +941,12 @@ namespace input {
     }
 
     // Convert the client normalized coordinates to touchport coordinates
-    auto coords = client_to_touchport(input, {from_clamped_netfloat(packet->x, 0.0f, 1.0f) * 65535.f, from_clamped_netfloat(packet->y, 0.0f, 1.0f) * 65535.f}, {65535.f, 65535.f});
+    auto coords = client_to_touchport(input, -1,{from_clamped_netfloat(packet->x, 0.0f, 1.0f) * 65535.f, from_clamped_netfloat(packet->y, 0.0f, 1.0f) * 65535.f}, {65535.f, 65535.f});
     if (!coords) {
       return;
     }
 
-    auto &touch_port = input->touch_port;
+    auto &touch_port = input->touch_ports.full_touch_port;
     platf::touch_port_t abs_port {
       touch_port.offset_x,
       touch_port.offset_y,
@@ -1171,7 +1176,7 @@ namespace input {
             platf::gamepad_update(platf_input, gamepad.id, state);
 
             // Sleep for a short time to allow the input to be detected
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            std::this_thread::sleep_for(std::chrono::milliseconds(100L));
 
             // Release Home button
             state.buttonFlags &= ~platf::HOME;
@@ -1632,19 +1637,20 @@ namespace input {
     return true;
   }
 
-  std::shared_ptr<input_t> alloc(safe::mail_t mail) {
-    auto input = std::make_shared<input_t>(
-      mail->event<input::touch_port_t>(mail::touch_port),
-      mail->queue<platf::gamepad_feedback_msg_t>(mail::gamepad_feedback)
-    );
+  std::shared_ptr<input_t> alloc(safe::mail_t& mail) {
+    auto input = std::make_shared<input_t>(mail->event<input::touch_ports>(mail::touch_port),
+      mail->queue<platf::gamepad_feedback_msg_t>(mail::gamepad_feedback));
 
     // Workaround to ensure new frames will be captured when a client connects
     task_pool.pushDelayed([]() {
       platf::move_mouse(platf_input, 1, 1);
       platf::move_mouse(platf_input, -1, -1);
-    },
-                          100ms);
+    },100ms);
 
     return input;
+  }
+
+  void addSessionMail(std::shared_ptr<input_t>& input,safe::mail_t mail) {
+    input->session_mails.emplace_back(mail);
   }
 }  // namespace input

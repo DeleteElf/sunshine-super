@@ -9,6 +9,7 @@
 #include <queue>
 
 // lib includes
+#include <boost/asio.hpp>
 #include <boost/endian/arithmetic.hpp>
 #include <openssl/err.h>
 
@@ -34,6 +35,8 @@ extern "C" {
 #include "system_tray.h"
 #include "thread_safe.h"
 #include "utility.h"
+
+#include "video_capture_session.h"
 
 #define IDX_START_A 0
 #define IDX_START_B 1
@@ -342,7 +345,7 @@ namespace stream {
 
     control_server_t control_server;
 
-    bool enable_mic=false;
+    bool enable_mic;
   };
 
   struct session_t {
@@ -361,6 +364,7 @@ namespace stream {
 
     boost::asio::ip::address localAddress;
 
+    std::vector<std::shared_ptr<video::CaptureSession>> captureSessions;
     struct {
       std::string ping_payload;
 
@@ -370,7 +374,6 @@ namespace stream {
       std::optional<crypto::cipher::gcm_t> cipher;
       std::uint64_t gcm_iv_counter;
 
-      safe::mail_raw_t::event_t<bool> idr_events;
       safe::mail_raw_t::event_t<std::pair<int64_t, int64_t>> invalidate_ref_frames_events;
 
       std::unique_ptr<platf::deinit_t> qos;
@@ -941,9 +944,10 @@ namespace stream {
 
       auto lastGoodFrame = stats[3];
 
+      auto displayIndex=stats[5];
       BOOST_LOG(verbose)
         << "type [IDX_LOSS_STATS]"sv << std::endl
-        << "---begin stats---" << std::endl
+        << "---begin stats---" << displayIndex << std::endl
         << "loss count since last report [" << count << ']' << std::endl
         << "time in milli since last report [" << t.count() << ']' << std::endl
         << "last good frame [" << lastGoodFrame << ']' << std::endl
@@ -951,9 +955,9 @@ namespace stream {
     });
 
     server->map(packetTypes[IDX_REQUEST_IDR_FRAME], [&](session_t *session, const std::string_view &payload) {
-      BOOST_LOG(debug) << "type [IDX_REQUEST_IDR_FRAME]"sv;
-
-      session->video.idr_events->raise(true);
+      uint16_t trackIndex=static_cast<uint16_t>(payload[0]);
+      BOOST_LOG(debug) << "receive request [IDX_REQUEST_IDR_FRAME]==============>"sv << trackIndex;
+      session->captureSessions[trackIndex]->getContext()->idr_event->raise(true);
     });
 
     server->map(packetTypes[IDX_INVALIDATE_REF_FRAMES], [&](session_t *session, const std::string_view &payload) {
@@ -1267,7 +1271,7 @@ namespace stream {
             it->second->raise(peer, std::string {buf[buf_elem].data(), bytes});
           }
         } else if (bytes == 20) { //观察到长度是20
-//        } else if (bytes >= sizeof(SS_PING)) {
+//        } else if (bytes >= sizeof(SS_PING)) { //观察到长度是20
           auto ping = (PSS_PING) buf[buf_elem].data();
 
           // For new PING packets that include a client identifier, search by payload.
@@ -1324,6 +1328,7 @@ namespace stream {
 
     while (auto packet = packets->pop()) {
       if (shutdown_event->peek()) {
+        BOOST_LOG(error) << "exit video broadcast thread！！！";
         break;
       }
 
@@ -1376,7 +1381,7 @@ namespace stream {
 
       // Insert space for packet headers
       auto blocksize = session->config.packetsize + MAX_RTP_HEADER_SIZE;
-      auto payload_blocksize = blocksize - sizeof(video_packet_raw_t);
+      auto payload_blocksize = blocksize - sizeof(video_packet_raw_t); //sizeof(video_packet_raw_t) 32bytes
       auto payload_new = concat_and_insert(sizeof(video_packet_raw_t), payload_blocksize, std::string_view {(char *) &frame_header, sizeof(frame_header)}, payload);
 
       payload = std::string_view {(char *) payload_new.data(), payload_new.size()};
@@ -1511,16 +1516,12 @@ namespace stream {
           for (auto x = 0; x < shards.size(); ++x) {
             auto *inspect = (video_packet_raw_t *) shards.data(x);
 
-            inspect->packet.fecInfo =
-              (x << 12 |
-               shards.data_shards << 22 |
-               shards.percentage << 4);
+            inspect->packet.fecInfo = (x << 12 | shards.data_shards << 22 | shards.percentage << 4);
 
             inspect->rtp.header = 0x80 | FLAG_EXTENSION;
             inspect->rtp.sequenceNumber = util::endian::big<uint16_t>(lowseq + x);
             inspect->rtp.timestamp = util::endian::big<uint32_t>(timestamp); //BE32 can also be used here
-            inspect->rtp.ssrc=BE32(packet->displayIndex); //same as util::endian::big<uint32_t>
-
+            inspect->rtp.ssrc = BE32(packet->displayIndex); //same as util::endian::big<uint32_t>
 
             inspect->packet.multiFecBlocks = (blockIndex << 4) | ((fec_blocks_needed - 1) << 6);
             inspect->packet.frameIndex = packet->frame_index();
@@ -1604,12 +1605,15 @@ namespace stream {
 
           frame_network_latency_logger.second_point_now_and_log();
 
-          BOOST_LOG(verbose) << "Sent Frame seq ["sv << packet->frame_index() << "] pts ["sv << timestamp
-                             << "] shards ["sv << shards.size() << "/"sv << shards.percentage << "%]"sv
-                             << (frame_is_dupe ? " Dupe" : "")
-                             << (packet->is_idr() ? " Key" : "")
-                             << (packet->after_ref_frame_invalidation ? " RFI" : "");
-
+          if(packet->is_idr()){
+            BOOST_LOG(info) << "sent idr frame ==========================>" << packet->displayIndex << " frameIndex:"<<packet->frame_index();
+          }
+          BOOST_LOG(verbose) << "Sent Frame ====> seq ["sv << packet->frame_index() << "] pts ["sv << timestamp
+                              << "] shards ["sv << shards.size() << "/"sv << shards.percentage << "%]"sv
+                              << (frame_is_dupe ? " Dupe" : "")
+                              << " ssrc:" <<packet->displayIndex
+                              << (packet->after_ref_frame_invalidation ? " RFI" : "");
+      
           ++blockIndex;
           lowseq += shards.size();
         });
@@ -1817,9 +1821,10 @@ namespace stream {
     ctx.audio_thread.join();
     BOOST_LOG(debug) << "Waiting for main control thread to end..."sv;
     ctx.control_thread.join();
-    BOOST_LOG(debug) << "All broadcasting threads ended"sv;
-
+    BOOST_LOG(debug) << "Waiting for broadcasting thread to end..."sv;
     broadcast_shutdown_event->reset();
+    BOOST_LOG(debug) << "All broadcasting threads ended"sv;
+    display_device::remove_vdd();
   }
 
   int recv_ping(session_t *session, decltype(broadcast)::ptr_t ref, socket_e type, std::string_view expected_payload, udp::endpoint &peer, std::chrono::milliseconds timeout) {
@@ -1890,10 +1895,11 @@ namespace stream {
 
     // Enable local prioritization and QoS tagging on video traffic if requested by the client
     auto address = session->video.peer.address();
-    session->video.qos = platf::enable_socket_qos(ref->video_sock.native_handle(), address, session->video.peer.port(), platf::qos_data_type_e::video, session->config.videoQosType != 0);
+    session->video.qos = platf::enable_socket_qos(ref->video_sock.native_handle(), address,
+      session->video.peer.port(), platf::qos_data_type_e::video, session->config.videoQosType != 0);
 
     BOOST_LOG(debug) << "Start capturing Video"sv;
-    video::capture(session->mail, session->config.monitors, session);
+    video::startCapture(session->mail, session->config.monitors,session);
   }
 
   void audioThread(session_t *session) {
@@ -1911,7 +1917,8 @@ namespace stream {
 
     // Enable local prioritization and QoS tagging on audio traffic if requested by the client
     auto address = session->audio.peer.address();
-    session->audio.qos = platf::enable_socket_qos(ref->audio_sock.native_handle(), address, session->audio.peer.port(), platf::qos_data_type_e::audio, session->config.audioQosType != 0);
+    session->audio.qos = platf::enable_socket_qos(ref->audio_sock.native_handle(), address,
+      session->audio.peer.port(), platf::qos_data_type_e::audio, session->config.audioQosType != 0);
 
     BOOST_LOG(debug) << "Start capturing Audio"sv;
     audio::capture(session->mail, session->config.audio, session);
@@ -1919,6 +1926,10 @@ namespace stream {
 
   namespace session {
     std::atomic_uint running_sessions;
+
+    std::vector<std::shared_ptr<video::CaptureSession>> getCaptureSessions(session_t* session){
+      return session->captureSessions;
+    }
 
     state_e state(session_t &session) {
       return session.state.load(std::memory_order_relaxed);
@@ -1984,7 +1995,9 @@ namespace stream {
 
     int start(session_t &session, const std::string &addr_string) {
       session.input = input::alloc(session.mail);
-
+      for(int i=0;i<session.captureSessions.size();i++){
+        input::addSessionMail(session.input,session.captureSessions[i]->getSessionMail());
+      }
       session.broadcast_ref = broadcast.ref();
       if (!session.broadcast_ref) {
         return -1;
@@ -2030,6 +2043,11 @@ namespace stream {
 
       auto mail = std::make_shared<safe::mail_raw_t>();
 
+      session->captureSessions.reserve(launch_session.display_count);
+      for (int i = 0; i < launch_session.display_count; ++i) {
+        session->captureSessions.emplace_back(std::make_shared<video::CaptureSession>(i));
+      }
+
       session->shutdown_event = mail->event<bool>(mail::shutdown);
       session->launch_session_id = launch_session.id;
 
@@ -2044,15 +2062,13 @@ namespace stream {
         false
       };
 
-      session->video.idr_events = mail->event<bool>(mail::idr);
       session->video.invalidate_ref_frames_events = mail->event<std::pair<int64_t, int64_t>>(mail::invalidate_ref_frames);
       session->video.lowseq = 0;
       session->video.ping_payload = launch_session.av_ping_payload;
       if (config.encryptionFlagsEnabled & SS_ENC_VIDEO) {
         BOOST_LOG(info) << "Video encryption enabled"sv;
         session->video.cipher = crypto::cipher::gcm_t {
-          launch_session.gcm_key,
-          false
+          launch_session.gcm_key, false
         };
         session->video.gcm_iv_counter = 0;
       }

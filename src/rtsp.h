@@ -29,9 +29,9 @@ namespace rtsp_stream {
     int height;
     int fps;
     int display_count;
-    bool use_vdd;
 
     bool enable_mic;
+    bool use_vdd;
 
     int gcmap;
     int appid;

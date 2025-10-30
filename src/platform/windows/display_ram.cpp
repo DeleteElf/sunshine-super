@@ -230,7 +230,7 @@ namespace platf::dxgi {
         // If we don't know the capture format yet, grab it from this texture and create the staging texture
         if (capture_format == DXGI_FORMAT_UNKNOWN) {
           capture_format = desc.Format;
-          BOOST_LOG(info) << "Capture format ["sv << dxgi_format_to_string(capture_format) << ']';
+          BOOST_LOG(info) << "Capture format [ram]["sv << dxgi_format_to_string(capture_format) << ']';
 
           D3D11_TEXTURE2D_DESC t {};
           t.Width = width;

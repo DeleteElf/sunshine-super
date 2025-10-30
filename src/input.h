@@ -22,7 +22,8 @@ namespace input {
 
   bool probe_gamepads();
 
-  std::shared_ptr<input_t> alloc(safe::mail_t mail);
+  std::shared_ptr<input_t> alloc(safe::mail_t& mail);
+  void addSessionMail(std::shared_ptr<input_t>& input,safe::mail_t mail);
 
   struct touch_port_t: public platf::touch_port_t {
     int env_width, env_height;
@@ -35,6 +36,13 @@ namespace input {
     explicit operator bool() const {
       return width != 0 && height != 0 && env_width != 0 && env_height != 0;
     }
+  };
+
+  struct touch_ports{
+    //按显示器
+    std::map<int,touch_port_t> ports;
+    //整个系统
+    touch_port_t full_touch_port;
   };
 
   /**

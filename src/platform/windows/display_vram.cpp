@@ -1219,7 +1219,7 @@ namespace platf::dxgi {
       // If we don't know the capture format yet, grab it from this texture
       if (capture_format == DXGI_FORMAT_UNKNOWN) {
         capture_format = desc.Format;
-        BOOST_LOG(info) << "Capture format ["sv << dxgi_format_to_string(capture_format) << ']';
+        BOOST_LOG(info) << "Capture format [vram]["sv << dxgi_format_to_string(capture_format) << ']';
       }
 
       // It's also possible for the capture format to change on the fly. If that happens,

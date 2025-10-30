@@ -19,6 +19,12 @@ and Nvidia GPUs for hardware encoding. Software encoding is also available. You 
 Moonlight client on a variety of devices. A web UI is provided to allow configuration, and client pairing, from \
 your favorite web browser. Pair from the local server or any mobile device.")
 
+#解决vs studio 集成vcpkg后，因为递归深度超过1000导致的错误，这个一般是环境变量和vcpkg集成同时配置造成的
+# Maximum recursion depth of 1000 exceeded
+#if(NOT CMAKE_MAXIMUM_RECURSION_DEPTH)
+#  set(CMAKE_MAXIMUM_RECURSION_DEPTH 3000)
+#endif()
+
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     message(STATUS "Setting build type to 'Release' as none was specified.")
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the type of build." FORCE)

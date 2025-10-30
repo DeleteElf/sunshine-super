@@ -7,7 +7,10 @@
 /**
  * @brief Handles the system tray icon and notification system.
  */
+#include <string>
+#include <tray/src/tray.h>
 namespace system_tray {
+  static std::string encoding;
   /**
    * @brief Callback for opening the UI from the system tray.
    * @param item The tray menu item.

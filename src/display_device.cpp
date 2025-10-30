@@ -4,7 +4,8 @@
  */
 // header include
 #include "display_device.h"
-
+#include "display_device/device_topology.h"
+#include "display_device/vdd_utils.h"
 // lib includes
 #include <boost/algorithm/string.hpp>
 #include <display_device/audio_context_interface.h>
@@ -19,7 +20,7 @@
 #include "audio.h"
 #include "platform/common.h"
 #include "rtsp.h"
-
+#include "confighttp.h"
 // platform-specific includes
 #ifdef _WIN32
   #include <display_device/windows/settings_manager.h>
@@ -29,14 +30,14 @@
 
 namespace display_device {
   namespace {
-    constexpr std::chrono::milliseconds DEFAULT_RETRY_INTERVAL {5000};
+    constexpr std::chrono::milliseconds DEFAULT_RETRY_INTERVAL {5000L};
 
     /**
      * @brief A global for the settings manager interface and other settings whose lifetime is managed by `display_device::init(...)`.
      */
     struct {
       std::mutex mutex {};
-      std::chrono::milliseconds config_revert_delay {0};
+      std::chrono::milliseconds config_revert_delay {0L};
       std::unique_ptr<RetryScheduler<SettingsManagerInterface>> sm_instance {nullptr};
     } DD_DATA;
 
@@ -686,6 +687,7 @@ namespace display_device {
         using enum SettingsManagerInterface::RevertResult;
         if (const auto result {settings_iface.revertSettings()}; result == Ok) {
           stop_token.requestStop();
+          BOOST_LOG(warning) << "display config resume！\n"sv;
           return;
         } else if (result == ApiTemporarilyUnavailable) {
           // Do nothing and retry next time
@@ -696,8 +698,7 @@ namespace display_device {
         BOOST_LOG(warning) << "Failed to revert display device configuration (will retry once devices are added or removed). Enabling all of the available devices:\n"
                            << toJson(available_devices);
         tried_out_devices.swap(available_devices);
-      },
-                                    scheduler_option);
+      },scheduler_option);
     }
   }  // namespace
 
@@ -757,6 +758,49 @@ namespace display_device {
     });
   }
 
+  void configure_vdd(const config::video_t &video_config, const rtsp_stream::launch_session_t &session) {
+    // 根据需求的显示器数量来决定是否需要拉虚拟显示器
+    if (session.use_vdd) {
+      auto displayMap = enum_available_devices();  // 计算现有的显示器数量
+      int vDisplayCount = 0;
+      if (session.display_count != displayMap.size()) {  // 如果显示器数量不足
+        for (const auto &pair : displayMap) {  // 查找现有的虚拟显示器，防止重复构建
+          if (pair.second.friendly_name == virtual_name)
+            vDisplayCount++;
+        }
+        int newDisplayCount = session.display_count - displayMap.size();  // 直接计算出虚拟显示器的总需求数量
+        vDisplayCount += newDisplayCount;
+        if (vDisplayCount < 0)  //如果需求的虚拟显示器是0，则直接禁用或跳过
+          vdd_utils::disable_vdd();
+        else {
+          ////        for (size_t i = 0; i < newDisplayCount; i++)
+          //   {
+          // 不论需求多少个显示器，我们只需要构建一次即可，虚拟显示器并不支持，每个独立分辨率
+          SingleDisplayConfiguration config;
+          config.m_device_id = video_config.output_name;
+          config.m_device_prep = static_cast<SingleDisplayConfiguration::DevicePreparation>(0);  //"no_operation"
+          config.m_refresh_rate = Rational {static_cast<unsigned int>(session.fps), 1};
+          config.m_resolution = Resolution {static_cast<unsigned int>(session.width), static_cast<unsigned int>(session.height)};
+          if (config.m_resolution.has_value()) {
+            if (config.m_resolution.value().m_width < 100 || config.m_resolution.value().m_width > 3840) {  // 如果数据不达标，强制默认宽度
+              config.m_resolution.value().m_width = 1920;
+            }
+            if (config.m_resolution.value().m_height < 100 || config.m_resolution.value().m_height > 3840) {  // 如果数据不达标，强制默认高度
+              config.m_resolution.value().m_height = 1080;
+            }
+          }
+          config.m_hdr_state = (session.enable_hdr ? HdrState::Enabled : HdrState::Disabled);
+          vdd_utils::prepare_vdd(config, session, vDisplayCount);  // 准备VDD设备,这里我们只负责创建
+        }
+      }
+    }
+  }
+
+  void remove_vdd() {
+    vdd_utils::disable_vdd();//需要取消所有的虚拟显示器，但虚拟显示器本身不支持配置为0，我们直接disable
+    BOOST_LOG(info) << "virtual display disable success...";
+  }
+
   void configure_display(const config::video_t &video_config, const rtsp_stream::launch_session_t &session) {
     const auto result {parse_configuration(video_config, session)};
     if (const auto *parsed_config {std::get_if<SingleDisplayConfiguration>(&result)}; parsed_config) {
@@ -787,7 +831,7 @@ namespace display_device {
         stop_token.requestStop();
       }
     },
-                                  {.m_sleep_durations = {DEFAULT_RETRY_INTERVAL}});
+    {.m_sleep_durations = {DEFAULT_RETRY_INTERVAL}});
   }
 
   void revert_configuration() {
@@ -822,7 +866,8 @@ namespace display_device {
     });
   }
 
-  std::variant<failed_to_parse_tag_t, configuration_disabled_tag_t, SingleDisplayConfiguration> parse_configuration(const config::video_t &video_config, const rtsp_stream::launch_session_t &session) {
+  std::variant<failed_to_parse_tag_t, configuration_disabled_tag_t, SingleDisplayConfiguration>
+    parse_configuration(const config::video_t &video_config, const rtsp_stream::launch_session_t &session) {
     const auto device_prep {parse_device_prep_option(video_config)};
     if (!device_prep) {
       return configuration_disabled_tag_t {};

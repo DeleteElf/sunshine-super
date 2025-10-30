@@ -17,9 +17,24 @@ add_subdirectory("${CMAKE_SOURCE_DIR}/third-party/libdisplaydevice")
 
 # common dependencies
 include("${CMAKE_MODULE_PATH}/dependencies/nlohmann_json.cmake")
+if(WIN32)
+    set(OPENSSL_ROOT_DIR "D:/msys64/mingw64")
+endif ()
 find_package(OpenSSL REQUIRED)
 find_package(PkgConfig REQUIRED)
 find_package(Threads REQUIRED)
+
+if(MSVC)
+
+else()
+    message("非msvc环境加入msvc curl的搜索路径")
+    include_directories("C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0/cppwinrt")
+endif()
+if(WIN32)
+    set(ZLIB_LIBRARY "D:/vcpkg/installed/x64-windows/lib")
+    set(ZLIB_INCLUDE_DIR "D:/vcpkg/installed/x64-windows/include")
+    find_package(ZLIB REQUIRED)
+endif ()
 pkg_check_modules(CURL REQUIRED libcurl)
 
 # miniupnp

@@ -1,5 +1,5 @@
 # windows specific packaging
-install(TARGETS sunshine RUNTIME DESTINATION "." COMPONENT application)
+install(TARGETS ${PROJECT_NAME} RUNTIME DESTINATION "." COMPONENT application)
 
 # Hardening: include zlib1.dll (loaded via LoadLibrary() in openssl's libcrypto.a)
 install(FILES "${ZLIB}" DESTINATION "." COMPONENT application)
@@ -7,7 +7,8 @@ install(FILES "${ZLIB}" DESTINATION "." COMPONENT application)
 # ViGEmBus installer
 set(VIGEMBUS_INSTALLER "${CMAKE_BINARY_DIR}/vigembus_installer.exe")
 file(DOWNLOAD
-        "https://github.com/nefarius/ViGEmBus/releases/download/v1.21.442.0/ViGEmBus_1.21.442_x64_x86_arm64.exe"
+        "file://E:/Downloads/ViGEmBus_1.21.442_x64_x86_arm64.exe"
+        #"https://github.com/nefarius/ViGEmBus/releases/download/v1.21.442.0/ViGEmBus_1.21.442_x64_x86_arm64.exe"
         ${VIGEMBUS_INSTALLER}
         SHOW_PROGRESS
         EXPECTED_HASH SHA256=155c50f1eec07bdc28d2f61a3e3c2c6c132fee7328412de224695f89143316bc
@@ -48,7 +49,10 @@ install(DIRECTORY "${SUNSHINE_SOURCE_ASSETS_DIR}/windows/misc/firewall/"
 install(DIRECTORY "${SUNSHINE_SOURCE_ASSETS_DIR}/windows/misc/gamepad/"
         DESTINATION "scripts"
         COMPONENT gamepad)
-
+#增加虚拟显示器的安装支持
+install(DIRECTORY "${SUNSHINE_SOURCE_ASSETS_DIR}/windows/misc/vdd/"
+        DESTINATION "scripts"
+        COMPONENT vdd)
 # Sunshine assets
 install(DIRECTORY "${SUNSHINE_SOURCE_ASSETS_DIR}/windows/assets/"
         DESTINATION "${SUNSHINE_ASSETS_DIR}"
@@ -78,6 +82,11 @@ set(CPACK_COMPONENT_APPLICATION_DESCRIPTION "${CMAKE_PROJECT_NAME} main applicat
 set(CPACK_COMPONENT_APPLICATION_GROUP "Core")
 set(CPACK_COMPONENT_APPLICATION_REQUIRED true)
 set(CPACK_COMPONENT_APPLICATION_DEPENDS assets)
+
+# Virtual Display Driver
+set(CPACK_COMPONENT_VDD_DISPLAY_NAME "Virtual Display Driver")
+set(CPACK_COMPONENT_VDD_DESCRIPTION "支持HDR的虚拟显示器驱动安装")
+set(CPACK_COMPONENT_VDD_GROUP "Core")
 
 # service auto-start script
 set(CPACK_COMPONENT_AUTOSTART_DISPLAY_NAME "Launch on Startup")

@@ -54,7 +54,9 @@ if(NOT Boost_FOUND)
 
     # Limit boost to the required libraries only
     set(BOOST_INCLUDE_LIBRARIES ${BOOST_COMPONENTS})
-    set(BOOST_URL "https://github.com/boostorg/boost/releases/download/boost-${BOOST_VERSION}/boost-${BOOST_VERSION}-cmake.tar.xz")  # cmake-lint: disable=C0301
+    #因为GFW的问题，一直下载不到，我们翻墙手动下载，脚本设置成我们手动下载的位置，这个与后面的等价效果
+    set(BOOST_URL "file://E:/Downloads/boost-${BOOST_VERSION}-cmake.tar.xz")
+    #set(BOOST_URL "https://github.com/boostorg/boost/releases/download/boost-${BOOST_VERSION}/boost-${BOOST_VERSION}-cmake.tar.xz")  # cmake-lint: disable=C0301
     set(BOOST_HASH "SHA256=7da75f171837577a52bbf217e17f8ea576c7c246e4594d617bfde7fafd408be5")
 
     if(CMAKE_VERSION VERSION_LESS "3.24.0")

@@ -11,6 +11,8 @@
 // lib includes
 #include <display_device/types.h>
 
+#include "globals.h"
+
 // forward declarations
 namespace platf {
   class deinit_t;
@@ -50,6 +52,9 @@ namespace display_device {
    */
   [[nodiscard]] std::string map_output_name(const std::string &output_name);
 
+
+  void configure_vdd(const config::video_t &video_config, const rtsp_stream::launch_session_t &session);
+  void remove_vdd();
   /**
    * @brief Configure the display device based on the user configuration and the session information.
    * @note This is a convenience method for calling similar method of a different signature.
@@ -159,4 +164,11 @@ namespace display_device {
    * @examples_end
    */
   [[nodiscard]] std::variant<failed_to_parse_tag_t, configuration_disabled_tag_t, SingleDisplayConfiguration> parse_configuration(const config::video_t &video_config, const rtsp_stream::launch_session_t &session);
+
+  /**
+   * @brief prepare virtual display
+   * @param config
+   * @param session
+   */
+  void prepare_vdd(SingleDisplayConfiguration &config, const rtsp_stream::launch_session_t &session);
 }  // namespace display_device

@@ -4,7 +4,7 @@
  */
 // macros
 #if defined SUNSHINE_TRAY && SUNSHINE_TRAY >= 1
-
+  #include "system_tray.h"
   #if defined(_WIN32)
     #define WIN32_LEAN_AND_MEAN
     #include <accctrl.h>
@@ -27,18 +27,14 @@
   #endif
 
   // standard includes
-  #include <atomic>
-  #include <chrono>
   #include <csignal>
-  #include <format>
-  #include <string>
-  #include <thread>
+  #include <iostream>
 
   // lib includes
   #include <boost/filesystem.hpp>
   #include <boost/process/v1/environment.hpp>
-  #include <tray/src/tray.h>
 
+  #include <iconv.h>
   // local includes
   #include "confighttp.h"
   #include "display_device.h"
@@ -51,12 +47,35 @@ using namespace std::literals;
 
 // system_tray namespace
 namespace system_tray {
-  static std::atomic tray_initialized = false;
-
+  static std::atomic<bool> tray_initialized = false;
   // Threading variables for all platforms
   static std::thread tray_thread;
   static std::atomic tray_thread_running = false;
   static std::atomic tray_thread_should_exit = false;
+
+  char* utf8_to_gbk(const std::string& utf8_str) {
+    iconv_t cd = iconv_open("GBK", "UTF-8");
+    if (cd == (iconv_t)-1) {
+      throw std::runtime_error("iconv open failed");
+    }
+
+    size_t inbytes = utf8_str.size();
+    size_t outbytes = inbytes * 2; // 预估输出大小，实际使用时可能需要根据转换结果调整大小
+    char* inbuf = const_cast<char*>(utf8_str.c_str());
+    char* outbuf = new char[outbytes];
+    memset(outbuf, 0, outbytes);
+
+    char* outptr = outbuf;
+    if (iconv(cd, &inbuf, &inbytes, &outptr, &outbytes) == (size_t)-1) {
+      delete[] outbuf;
+      iconv_close(cd);
+      throw std::runtime_error("iconv failed");
+    }
+    // std::string result(outbuf, outptr - outbuf);
+    // delete[] outbuf;
+    iconv_close(cd);
+    return outbuf;
+  }
 
   void tray_open_ui_cb([[maybe_unused]] struct tray_menu *item) {
     BOOST_LOG(info) << "Opening UI from system tray"sv;
@@ -106,33 +125,45 @@ namespace system_tray {
   static struct tray tray = {
     .icon = TRAY_ICON,
     .tooltip = PROJECT_NAME,
-    .menu =
-      (struct tray_menu[]) {
-        // todo - use boost/locale to translate menu strings
-        {.text = "Open Sunshine", .cb = tray_open_ui_cb},
-        {.text = "-"},
-        {.text = "Donate",
-         .submenu =
-           (struct tray_menu[]) {
-             {.text = "GitHub Sponsors", .cb = tray_donate_github_cb},
-             {.text = "Patreon", .cb = tray_donate_patreon_cb},
-             {.text = "PayPal", .cb = tray_donate_paypal_cb},
-             {.text = nullptr}
-           }},
-        {.text = "-"},
+    .menu= new tray_menu[6] {
+          {.text = "Open Console" , .cb = tray_open_ui_cb},
+          //去掉赞助相关的内容
+          //        {.text = "-"},
+          //        {.text = "Donate",
+          //         .submenu =
+          //           (struct tray_menu[]) {
+          //             {.text = "GitHub Sponsors", .cb = tray_donate_github_cb},
+          //             {.text = "Patreon", .cb = tray_donate_patreon_cb},
+          //             {.text = "PayPal", .cb = tray_donate_paypal_cb},
+          //             {.text = nullptr}
+          //           }},
+          {.text = "-"},
   // Currently display device settings are only supported on Windows
   #ifdef _WIN32
-        {.text = "Reset Display Device Config", .cb = tray_reset_display_device_config_cb},
+          {.text = "Reset Display Device Config", .cb = tray_reset_display_device_config_cb},
   #endif
-        {.text = "Restart", .cb = tray_restart_cb},
-        {.text = "Quit", .cb = tray_quit_cb},
-        {.text = nullptr}
-      },
+          {.text = "Restart", .cb = tray_restart_cb},
+          {.text = "Quit", .cb = tray_quit_cb},
+          {.text = nullptr}
+        },
     .iconPathCount = 4,
     .allIconPaths = {TRAY_ICON, TRAY_ICON_LOCKED, TRAY_ICON_PLAYING, TRAY_ICON_PAUSING},
   };
 
+  bool isUTF8UnicodeEnvironment() {
+    UINT oemcp = GetOEMCP();
+    return oemcp==65001;
+//    UINT acp = GetACP();
+//    // 如果ACP和OEMCP相同，并且不是ANSI的常见值（如936, 932等），可以认为是启用Unicode
+//    if (acp == oemcp && (acp == CP_ACP || acp == 936|| acp == 1252)) { // 1252是西欧语言的ANSI代码页
+//        return false; // 非Unicode环境
+//    } else {
+//        return true; // 认为是Unicode环境
+//    }
+}
+
   int init_tray() {
+    encoding= setlocale(LC_ALL, "");
   #ifdef _WIN32
     // If we're running as SYSTEM, Explorer.exe will not have permission to open our thread handle
     // to monitor for thread termination. If Explorer fails to open our thread, our tray icon
@@ -194,13 +225,40 @@ namespace system_tray {
       Sleep(1000);
     }
   #endif
-
+    //windows的unicode环境已经测试通过了
+    //windows的GBK环境目前扔是乱码
+    if(encoding.find("936")!= std::string::npos||encoding.find("utf-8")!= std::string::npos ||encoding.find("UTF-8")!= std::string::npos) {
+      if(isUTF8UnicodeEnvironment()){
+        tray.menu = new tray_menu[6] {
+          {.text = "打开主机控制台", .cb = tray_open_ui_cb},
+          {.text = "-"},
+  #ifdef _WIN32
+          {.text = "重置显示驱动配置", .cb = tray_reset_display_device_config_cb},
+  #endif
+          {.text = "重启", .cb = tray_restart_cb},
+          {.text = "退出", .cb = tray_quit_cb},
+          {.text = nullptr}
+        };
+      }else{
+        tray.menu = new tray_menu[6] {
+          {.text = utf8_to_gbk("打开主机控制台"), .cb = tray_open_ui_cb},
+          {.text = "-"},
+  #ifdef _WIN32
+          {.text = utf8_to_gbk("重置显示配置"), .cb = tray_reset_display_device_config_cb},
+  #endif
+          {.text = utf8_to_gbk("重启"), .cb = tray_restart_cb},
+          {.text = utf8_to_gbk("退出"), .cb = tray_quit_cb},
+          {.text = nullptr}
+        };
+      }
+    }
     if (tray_init(&tray) < 0) {
       BOOST_LOG(warning) << "Failed to create system tray"sv;
       return 1;
+    } else {
+      BOOST_LOG(info) << "System tray created"sv;
     }
 
-    BOOST_LOG(info) << "System tray created"sv;
     tray_initialized = true;
     return 0;
   }
@@ -239,11 +297,25 @@ namespace system_tray {
     tray.icon = TRAY_ICON_PLAYING;
     tray_update(&tray);
     tray.icon = TRAY_ICON_PLAYING;
-    tray.notification_title = "Stream Started";
 
-    static std::string msg = std::format("Streaming started for {}", app_name);
-    tray.notification_text = msg.c_str();
-    tray.tooltip = msg.c_str();
+    char msg[256];
+
+    if(encoding.find("936")!= std::string::npos||encoding.find("utf-8")!= std::string::npos ||encoding.find("UTF-8")!= std::string::npos) {
+      if(isUTF8UnicodeEnvironment()){
+        tray.notification_title = "接入远程控制";
+        snprintf(msg, std::size(msg), "远程客户端正在控制 %s", app_name.c_str());
+      }else{
+        // const char* title=utf8_to_gbk("接入远程控制").c_str();
+        // tray.notification_title = "remote connected";
+        tray.notification_title = utf8_to_gbk("接入远程控制");
+        snprintf(msg, std::size(msg),  utf8_to_gbk("远程客户端正在控制 "+app_name));
+      }
+    }else {
+      tray.notification_title = "Stream Started";
+      snprintf(msg, std::size(msg), "Streaming started for %s", app_name.c_str());
+    }
+    tray.notification_text = msg;
+    tray.tooltip = msg;
     tray.notification_icon = TRAY_ICON_PLAYING;
     tray_update(&tray);
   }
@@ -259,12 +331,23 @@ namespace system_tray {
     tray.notification_icon = nullptr;
     tray.icon = TRAY_ICON_PAUSING;
     tray_update(&tray);
-
-    static std::string msg = std::format("Streaming paused for {}", app_name);
+    char msg[256];
+    if(encoding.find("936")!= std::string::npos||encoding.find("utf-8")!= std::string::npos ||encoding.find("UTF-8")!= std::string::npos) {
+      if(isUTF8UnicodeEnvironment()){
+        tray.notification_title = "暂停远程控制";
+        snprintf(msg, std::size(msg), "远程客户端暂停控制 %s", app_name.c_str());
+      }else{
+        tray.notification_title =  utf8_to_gbk("暂停远程控制");
+        // tray.notification_title = "remote paused";// utf8_to_gbk("暂停远程控制").c_str();
+        snprintf(msg, std::size(msg),  utf8_to_gbk("远程客户端暂停控制 "+app_name));
+      }
+    }else {
+      tray.notification_title = "Stream Paused";
+      snprintf(msg, std::size(msg), "Streaming paused for %s", app_name.c_str());
+    }
     tray.icon = TRAY_ICON_PAUSING;
-    tray.notification_title = "Stream Paused";
-    tray.notification_text = msg.c_str();
-    tray.tooltip = msg.c_str();
+    tray.notification_text = msg;
+    tray.tooltip = msg;
     tray.notification_icon = TRAY_ICON_PAUSING;
     tray_update(&tray);
   }
@@ -280,12 +363,22 @@ namespace system_tray {
     tray.notification_icon = nullptr;
     tray.icon = TRAY_ICON;
     tray_update(&tray);
-
-    static std::string msg = std::format("Application {} successfully stopped", app_name);
+    char msg[256];
+    if(encoding.find("936")!= std::string::npos||encoding.find("utf-8")!= std::string::npos ||encoding.find("UTF-8")!= std::string::npos) {
+      if(isUTF8UnicodeEnvironment()){
+        tray.notification_title = "退出远程控制";
+        snprintf(msg, std::size(msg), "远程客户端退出控制 %s", app_name.c_str());
+      }else{
+        tray.notification_title = utf8_to_gbk("退出远程控制");
+        snprintf(msg, std::size(msg),  utf8_to_gbk("远程客户端退出控制 "+app_name));
+      }  
+    }else {
+      tray.notification_title = "Application Stopped";
+      snprintf(msg, std::size(msg), "Application %s successfully stopped", app_name.c_str());
+    }
     tray.icon = TRAY_ICON;
     tray.notification_icon = TRAY_ICON;
-    tray.notification_title = "Application Stopped";
-    tray.notification_text = msg.c_str();
+    tray.notification_text = msg;
     tray.tooltip = PROJECT_NAME;
     tray_update(&tray);
   }
@@ -333,7 +426,7 @@ namespace system_tray {
       }
 
       // Sleep to avoid busy waiting
-      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      std::this_thread::sleep_for(std::chrono::milliseconds(50L));
     }
 
     // Clean up the tray
@@ -356,10 +449,10 @@ namespace system_tray {
       // Wait for the thread to start and initialize
       const auto start_time = std::chrono::steady_clock::now();
       while (!tray_thread_running && !tray_thread_should_exit) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        std::this_thread::sleep_for(std::chrono::milliseconds(10L));
 
         // Timeout after 10 seconds
-        if (std::chrono::steady_clock::now() - start_time > std::chrono::seconds(10)) {
+        if (std::chrono::steady_clock::now() - start_time > std::chrono::seconds(10L)) {
           BOOST_LOG(error) << "Tray thread initialization timeout"sv;
           tray_thread_should_exit = true;
           if (tray_thread.joinable()) {

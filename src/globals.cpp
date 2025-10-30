@@ -11,4 +11,6 @@ bool display_cursor = true;
 
 #ifdef _WIN32
 nvprefs::nvprefs_interface nvprefs_instance;
+
+std::string virtual_name = "VDD by MTT";
 #endif

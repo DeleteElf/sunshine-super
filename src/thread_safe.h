@@ -249,8 +249,7 @@ namespace safe {
     return std::make_shared<alarm_raw_t<T>>();
   }
 
-  template<class T>
-  class queue_t {
+template<class T>  class queue_t {
   public:
     using status_t = util::optional_t<T>;
 

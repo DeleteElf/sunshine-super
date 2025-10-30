@@ -261,7 +261,7 @@ namespace platf::dxgi {
     // Create the staging texture if it doesn't exist. It should match the source in size and format.
     if (texture == nullptr) {
       capture_format = desc.Format;
-      BOOST_LOG(info) << "Capture format ["sv << dxgi_format_to_string(capture_format) << ']';
+      BOOST_LOG(info) << "Capture format [wgc]["sv << dxgi_format_to_string(capture_format) << ']';
 
       D3D11_TEXTURE2D_DESC t {};
       t.Width = width;
